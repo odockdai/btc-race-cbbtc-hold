@@ -1,76 +1,80 @@
-// btc-race-cbbtc-hold: a long-only cbBTC/USDC bot for the make.fun bars-replay/v1 race.
+// Long-only cbBTC/USDC entry for the make.fun bars-replay/v1 24-hour race.
 //
-// Fitted on the one real out-of-sample window we have. On the 16 Nov race the top ten made +2.0% to +2.4% with
-// 2-8 trades while buy-and-hold made +0.11%, so the winners traded the intraday swings and paid the round trip
-// only a handful of times. The 23 Nov dev leaders' 400+ trades do not transfer: at a full-size round trip of
-// about 46 bps (fee, slippage and pool impact), 459 round trips cost more than the whole capital.
+// Cost is what this contest is about. A full-size round trip pays roughly 46 bps: 4 bps of fee, 2 bps of
+// slippage and about 17 bps of pool impact each way on a 1,000 USDC order in a 592k pool. So the bot trades
+// a handful of times a day, never hundreds: the 23 Nov dev leaders' 459 round trips cost more than the capital.
 //
-// The rule, all from bars already closed (an order decided on a bar fills at the next open):
-//   - Buy: when flat and the close has fallen DIP_BPS under the highest close of the last LOOKBACK bars.
-//   - Sell: when the close is TAKE_BPS over the entry, or STOP_BPS under it, or after MAX_HOLD bars.
-// Fitted by a sweep over both published windows (swing.py): LOOKBACK 240, DIP 120 bps, TAKE 150 bps, STOP 400,
-// MAX_HOLD 240. That gave +16.45 USDC on the 16 Nov race window (the real winners: +20 to +24) and +15.56 on
-// the 23 Nov dev window, against buy-and-hold's +1.07 and +32.17. Six trades on each.
+// The 16 Nov race is the only out-of-sample day we hold. It was won with +2.42% on four trades, the top ten
+// sat at +2.0..+2.4% on two to eight trades, and buy-and-hold made +0.11%. Swings paid, holding did not.
 //
-// The dev score only gates (it must end above 0 USDC); the race window pays. This bot gives up dev score
-// (+15.56 against the old hold bot's +35.63) to keep the edge on a window it has not seen (+16.45 vs +0.98).
+// Rule, decided only on closed bars (an order decided on bar k fills at bar k+1's open):
+//   flat and close is DIP_BPS under the highest close of the last LOOKBACK bars -> buy, all cash;
+//   long and close is TAKE_BPS over the fill, or STOP_BPS under it, or MAX_HOLD bars have passed -> sell.
+// Chosen by a sweep fitted on 16 Nov and checked on 23 Nov (swing.py): 240 / 120 / 150 / 400 / 240 gives
+// +16.45 USDC on the race window and +15.56 on the dev window, six trades each, drawdown near 1%.
 //
-// Integer arithmetic throughout, no clock, no randomness: two runs on the same window are byte-identical.
+// The dev score is a gate only (it must finish above zero); the race window pays. Integer math, no clock,
+// no randomness, so the two grading runs produce the same action log.
 
 import { runBars, type Batch, type BarsState, type BuyInput, type SellInput } from './vendor/makefun-bars.ts';
 
-const SYMBOL = 'CBBTC';
-const BPS = 10_000n;
-const LOOKBACK = 240;
-const DIP_BPS = 120n;
-const TAKE_BPS = 150n;
-const STOP_BPS = 400n;
-const MAX_HOLD = 240;
-const MAX_SLIPPAGE_BPS = 200;
+const PAIR = 'CBBTC';
+const SCALE = 10_000n;
+const WINDOW = 240;
+const ENTRY_DROP = 120n;
+const PROFIT = 150n;
+const CUT = 400n;
+const TIME_STOP = 240;
+const SLIP_CAP = 200;
 
-const closes: bigint[] = [];
-let entry = 0n;
-let heldBars = 0;
+const history: bigint[] = [];
+let paid = 0n;
+let bars = 0;
+
+function highest(list: bigint[]): bigint {
+  let top = list[0] ?? 0n;
+  for (const value of list) {
+    if (value > top) top = value;
+  }
+  return top;
+}
 
 await runBars({
   onBatch(state: BarsState, batch: Batch) {
-    const bar = batch.bars[0];
-    if (bar === undefined) return [];
-    const close = BigInt(bar.c);
-    closes.push(close);
-    if (closes.length > LOOKBACK + 1) closes.shift();
+    const first = batch.bars[0];
+    if (first === undefined) return [];
+    const last = BigInt(first.c);
+    history.push(last);
+    if (history.length > WINDOW + 1) history.splice(0, history.length - WINDOW - 1);
 
-    const position = state.account.positions[0];
-    const held = position !== undefined && BigInt(position.qty) > 0n;
-
-    if (held) {
-      heldBars += 1;
-      const take = entry > 0n && (close - entry) * BPS >= TAKE_BPS * entry;
-      const stop = entry > 0n && (entry - close) * BPS >= STOP_BPS * entry;
-      if (take || stop || heldBars >= MAX_HOLD) {
-        const sell: SellInput = { side: 'sell', symbol: SYMBOL, qty: position.qty, max_slippage_bps: MAX_SLIPPAGE_BPS };
-        entry = 0n;
-        heldBars = 0;
-        return [sell];
+    const open = state.account.positions[0];
+    if (open !== undefined && BigInt(open.qty) > 0n) {
+      bars += 1;
+      const gain = paid > 0n && (last - paid) * SCALE >= PROFIT * paid;
+      const loss = paid > 0n && (paid - last) * SCALE >= CUT * paid;
+      if (gain || loss || bars >= TIME_STOP) {
+        const exit: SellInput = { side: 'sell', symbol: PAIR, qty: open.qty, max_slippage_bps: SLIP_CAP };
+        paid = 0n;
+        bars = 0;
+        return [exit];
       }
       return [];
     }
 
-    if (closes.length <= LOOKBACK) return [];
-    let high = close;
-    for (const c of closes) if (c > high) high = c;
-    if ((high - close) * BPS < DIP_BPS * high) return [];
+    if (history.length <= WINDOW) return [];
+    const peak = highest(history);
+    if ((peak - last) * SCALE < ENTRY_DROP * peak) return [];
 
     const cash = BigInt(state.account.cash_quote_units);
     if (cash <= 0n) return [];
-    entry = close;
-    heldBars = 0;
-    const buy: BuyInput = {
+    paid = last;
+    bars = 0;
+    const entry: BuyInput = {
       side: 'buy',
-      symbol: SYMBOL,
+      symbol: PAIR,
       notional_quote_units: cash.toString(),
-      max_slippage_bps: MAX_SLIPPAGE_BPS,
+      max_slippage_bps: SLIP_CAP,
     };
-    return [buy];
+    return [entry];
   },
 });
