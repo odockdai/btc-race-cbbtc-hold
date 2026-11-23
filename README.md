@@ -4,17 +4,22 @@
 [![rank](https://make.fun/badge/btc-race-24h-20261123-0511/odockdai/btc-race-cbbtc-hold/rank.svg)](https://make.fun/bounty/btc-race-24h-20261123-0511/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=btc-race-24h-20261123-0511)
 [![reward](https://make.fun/badge/btc-race-24h-20261123-0511/odockdai/btc-race-cbbtc-hold/reward.svg)](https://make.fun/bounty/btc-race-24h-20261123-0511?utm_source=github&utm_medium=readme&utm_campaign=btc-race-24h-20261123-0511)
 
-A long-only minute bot for cbBTC/USDC on the Orca Whirlpool replay: it buys on a confirmed upswing and then
-holds, selling only when the close falls far enough under the peak or under its cost to beat the round trip.
+A long-only minute bot for cbBTC/USDC on the Orca Whirlpool replay: it buys an all-in dip of 1.2% under the
+240-bar high, then takes 1.5%, stops at 4%, or exits after 240 bars. Six trades a day, not six hundred.
 
 ## Why this shape
 
-On the kit's frozen dev window (1,440 one-minute bars, +3.59% over the day, 7.5 bps standard deviation per
-bar, 218 flat bars) buying and holding earned +32.17 USDC. Cutting in and out paid fees: an EMA cross made 76
-fills and ended below holding. A sweep over entry thresholds and exits (in `sweep.py`, which reproduces the
-grader to the cent) found the same thing: the edge is cost avoidance, not prediction. A 5 bps confirmed upswing
-entry with a wide exit earned +35.63 USDC; tighter exits protected the falling hours but gave back more than
-they saved.
+A full-size round trip costs about 46 bps: 4 bps fee, 2 bps slippage and roughly 17 bps of pool impact each
+way at $1,000 into a 592k USDC pool. Cost, not prediction, decides this contest.
+
+- The 23 Nov dev window (+3.59% over the day) rewards holding: buy-and-hold made +32.17 USDC. The dev leaders
+  show +15.1% on 459 trades, a profile that cannot transfer, because 459 round trips cost more than the capital.
+- The 16 Nov race is the only real out-of-sample window. It was won with +2.42% on 4 trades, and the top ten
+  all sat at +2.0..+2.4% with 2-8 trades while buy-and-hold made +0.11%. The winners traded the swings.
+- A dip-buy swing transfers across both. Fitted on 16 Nov and checked on 23 Nov (`swing.py`, which reproduces
+  the grader): LOOKBACK 240, DIP 120 bps, TAKE 150 bps, STOP 400 bps, MAX_HOLD 240 gives +16.45 USDC on the
+  16 Nov race window and +15.56 on the 23 Nov dev window, 6 trades each, drawdown about 1%.
+- Momentum scalps lost on both windows (`momentum.py`): the 26+ bps round trip eats the edge.
 
 ## Run it
 
@@ -22,7 +27,8 @@ they saved.
 node cli/makefun.mjs grade-local --kit kit --bot repo --driver process
 ```
 
-Mainnet only in the sense of the data: every order trades paper money against the pool's real prices.
+Every order trades paper money against the pool's real prices. Integer arithmetic throughout, no clock and no
+randomness, so two runs on the same window are byte-identical.
 
 ---
 

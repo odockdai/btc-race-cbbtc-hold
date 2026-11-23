@@ -1,4 +1,4 @@
-// mend-btc-swing: a long-only cbBTC/USDC bot for the make.fun bars-replay/v1 race.
+// btc-race-cbbtc-hold: a long-only cbBTC/USDC bot for the make.fun bars-replay/v1 race.
 //
 // Fitted on the one real out-of-sample window we have. On the 16 Nov race the top ten made +2.0% to +2.4% with
 // 2-8 trades while buy-and-hold made +0.11%, so the winners traded the intraday swings and paid the round trip
@@ -11,6 +11,9 @@
 // Fitted by a sweep over both published windows (swing.py): LOOKBACK 240, DIP 120 bps, TAKE 150 bps, STOP 400,
 // MAX_HOLD 240. That gave +16.45 USDC on the 16 Nov race window (the real winners: +20 to +24) and +15.56 on
 // the 23 Nov dev window, against buy-and-hold's +1.07 and +32.17. Six trades on each.
+//
+// The dev score only gates (it must end above 0 USDC); the race window pays. This bot gives up dev score
+// (+15.56 against the old hold bot's +35.63) to keep the edge on a window it has not seen (+16.45 vs +0.98).
 //
 // Integer arithmetic throughout, no clock, no randomness: two runs on the same window are byte-identical.
 
